@@ -1,0 +1,73 @@
+
+
+import streamlit as st
+import requests
+from bs4 import BeautifulSoup
+from urllib.parse import urljoin, urlparse
+from collections import deque
+import os
+
+# --- Crawler Function ---
+def crawl_site(start_url, max_pages=50):
+    visited = set()
+    queue = deque([start_url])
+    content_dict = {}
+
+    domain = urlparse(start_url).netloc
+
+    while queue and len(visited) < max_pages:
+        url = queue.popleft()
+        if url in visited:
+            continue
+
+        try:
+            response = requests.get(url, timeout=10)
+            if response.status_code != 200:
+                continue
+        except:
+            continue
+
+        visited.add(url)
+        soup = BeautifulSoup(response.text, 'html.parser')
+
+        # Extract visible text
+        texts = soup.stripped_strings
+        page_text = '\n'.join(texts)
+        content_dict[url] = page_text
+
+        # Find internal links
+        for link_tag in soup.find_all('a', href=True):
+            full_url = urljoin(url, link_tag['href'])
+            parsed = urlparse(full_url)
+            if parsed.netloc == domain and full_url not in visited:
+                queue.append(full_url)
+
+    return content_dict
+
+def save_report(data, filename="report.txt"):
+    with open(filename, "w", encoding='utf-8') as f:
+        for url, content in data.items():
+            f.write(f"\n--- URL: {url} ---\n")
+            f.write(content + "\n\n")
+    return filename
+
+
+st.set_page_config(page_title="Website Scraper", layout="wide")
+st.title("🔎 Website Scraper and Report Generator")
+
+url_input = st.text_input("Enter a website URL (e.g. https://example.com):")
+max_pages = st.slider("Max pages to crawl", 1, 100, 20)
+
+if st.button("Scrape Website"):
+    if url_input:
+        with st.spinner("Scraping in progress..."):
+            scraped_data = crawl_site(url_input, max_pages=max_pages)
+            if scraped_data:
+                file_path = save_report(scraped_data)
+                st.success(f"Scraped {len(scraped_data)} pages!")
+                with open(file_path, "rb") as f:
+                    st.download_button("📄 Download Report", f, file_name="website_report.txt")
+            else:
+                st.error("Failed to scrape any pages.")
+    else:
+        st.warning("Please enter a valid URL.")
